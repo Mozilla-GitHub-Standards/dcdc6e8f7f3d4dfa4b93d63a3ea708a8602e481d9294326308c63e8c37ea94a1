@@ -149,6 +149,10 @@ func main() {
 	}
 	ddClient.Namespace = namespace
 
+	http.HandleFunc("/heartbeat", func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "OK")
+	})
+
 	http.HandleFunc("/gauge/", makeHandler(func(m string, bodyData []byte) error {
 		val, err := strconv.ParseFloat(string(bodyData), 64)
 		if err != nil {
