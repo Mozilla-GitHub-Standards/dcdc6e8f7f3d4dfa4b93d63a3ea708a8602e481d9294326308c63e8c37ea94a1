@@ -99,43 +99,11 @@ func extractMetric(requestUrl *url.URL) (string, error) {
 	return parts[2], nil
 }
 
-func getString(r *http.Request) (string, error) {
-	if r.Body == nil {
-		return "", nil
-	}
-
-	b, err := ioutil.ReadAll(r.Body)
-
-	if err != nil {
-		return "", err
-	}
-
-	return string(b), nil
-}
-
-func getFloat64(req *http.Request) (float64, error) {
-	s, err := getString(req)
-
-	if err != nil {
-		return 0, err
-	}
-
-	return strconv.ParseFloat(s, 64)
-}
-
-func getInt64(req *http.Request) (v int64, err error) {
-	s, err := getString(req)
-	if err != nil {
-		return 0, err
-	}
-
-	return strconv.ParseInt(s, 10, 64)
-}
-
-type statHandler func(m string, r *http.Request) error
+type statHandler func(string, []byte) error
 
 func makeHandler(handler statHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+
 		metricName, err := extractMetric(r.URL)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
@@ -149,13 +117,20 @@ func makeHandler(handler statHandler) http.HandlerFunc {
 			return
 		}
 
-		// handle the request and deal with any errors
-		if err := handler(metricName, r); err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			io.WriteString(w, "ERROR: "+err.Error())
+		if bodyData, err := ioutil.ReadAll(r.Body); err == nil {
+			if err := handler(metricName, bodyData); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				io.WriteString(w, "ERROR: "+err.Error())
+			} else {
+				io.WriteString(w, "OK")
+			}
 		} else {
-			io.WriteString(w, "OK")
+			w.WriteHeader(http.StatusInternalServerError)
+			io.WriteString(w, "Could not read body")
+			return
+
 		}
+
 	}
 }
 
@@ -166,32 +141,32 @@ func main() {
 	}
 	ddClient.Namespace = namespace
 
-	http.HandleFunc("/gauge/", makeHandler(func(m string, r *http.Request) error {
-		val, err := getFloat64(r)
+	http.HandleFunc("/gauge/", makeHandler(func(m string, bodyData []byte) error {
+		val, err := strconv.ParseFloat(string(bodyData), 64)
 		if err != nil {
 			return err
 		}
 		return ddClient.Gauge(m, val, tags, 1)
 	}))
 
-	http.HandleFunc("/count/", makeHandler(func(m string, r *http.Request) error {
-		val, err := getInt64(r)
+	http.HandleFunc("/count/", makeHandler(func(m string, bodyData []byte) error {
+		val, err := strconv.ParseInt(string(bodyData), 10, 64)
 		if err != nil {
 			return err
 		}
 		return ddClient.Count(m, val, tags, 1)
 	}))
 
-	http.HandleFunc("/histogram/", makeHandler(func(m string, r *http.Request) error {
-		val, err := getFloat64(r)
+	http.HandleFunc("/histogram/", makeHandler(func(m string, bodyData []byte) error {
+		val, err := strconv.ParseFloat(string(bodyData), 64)
 		if err != nil {
 			return err
 		}
 		return ddClient.Histogram(m, val, tags, 1)
 	}))
 
-	http.HandleFunc("/set/", makeHandler(func(m string, r *http.Request) error {
-		val, err := getString(r)
+	http.HandleFunc("/set/", makeHandler(func(m string, bodyData []byte) error {
+		val := string(bodyData)
 		if err != nil {
 			return err
 		}
