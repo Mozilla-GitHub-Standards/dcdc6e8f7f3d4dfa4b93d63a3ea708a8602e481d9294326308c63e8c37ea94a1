@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bytes"
+	"bufio"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -23,10 +23,14 @@ var (
 	tags      = []string{}
 	namespace string
 	listen    string
+
+	// white listed metrics that are allowed to be sent
+	whitelistPath string
+	whitelist     = map[string]bool{}
 )
 
 func init() {
-	metricPattern = regexp.MustCompile(`^[a-z][\.a-z0-9]*[a-z]$`)
+	metricPattern = regexp.MustCompile(`^[a-z][\.a-z0-9]*[a-z0-9]$`)
 
 	tagPattern := regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9]*(:[a-zA-Z_0-9]*)?$`)
 	for _, v := range strings.Split(os.Getenv("TAGS"), ",") {
@@ -50,6 +54,31 @@ func init() {
 	listen = os.Getenv("LISTEN")
 	if listen == "" {
 		listen = ":8080"
+	}
+
+	whitelistPath = os.Getenv("WHITELIST_FILE")
+	if whitelistPath != "" {
+		file, err := os.Open(whitelistPath)
+		if err != nil {
+			log.Fatalf("Whitelist file error %s\n", err.Error())
+		}
+
+		defer file.Close()
+
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			metricName := strings.TrimSpace(scanner.Text())
+
+			if string(metricName[0]) == "#" {
+				continue
+			}
+
+			if metricNameOK(metricName) == false {
+				log.Fatalf("Invalid metric name: %s\n", metricName)
+			}
+
+			whitelist[metricName] = true
+		}
 	}
 }
 
@@ -110,14 +139,20 @@ func makeHandler(handler statHandler) http.HandlerFunc {
 		metricName, err := extractMetric(r.URL)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
-			bytes.NewBufferString("Invalid metric name").WriteTo(w)
+			io.WriteString(w, "Invalid metric name")
+			return
+		}
+
+		if whitelistPath != "" && whitelist[metricName] != true {
+			w.WriteHeader(http.StatusUnauthorized)
+			io.WriteString(w, "Metric is not whitelisted")
 			return
 		}
 
 		// handle the request and deal with any errors
 		if err := handler(metricName, r); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
-			bytes.NewBufferString("ERROR: " + err.Error() + "\n").WriteTo(w)
+			io.WriteString(w, "ERROR: "+err.Error())
 		} else {
 			io.WriteString(w, "OK")
 		}
@@ -125,12 +160,11 @@ func makeHandler(handler statHandler) http.HandlerFunc {
 }
 
 func main() {
-
 	ddClient, err := statsd.New("127.0.0.1:8125")
 	if err != nil {
 		log.Fatal(err)
 	}
-	ddClient.Namespace = "experimental."
+	ddClient.Namespace = namespace
 
 	http.HandleFunc("/gauge/", makeHandler(func(m string, r *http.Request) error {
 		val, err := getFloat64(r)
@@ -164,10 +198,20 @@ func main() {
 		return ddClient.Set(m, val, tags, 1)
 	}))
 
-	fmt.Printf("Namespace	: %s\n", namespace)
-	fmt.Printf("Tags		: %s\n", tags)
-	fmt.Printf("Listen		: %v\n", listen)
+	log.Println("Starting service...")
+	log.Println("--------------------------------------")
+	log.Printf("Namespace : %s", namespace)
+	log.Printf("Tags      : %s", tags)
+	log.Printf("Listening : %v", listen)
+
+	if whitelistPath != "" {
+		log.Printf("Whitelisted metrics: ")
+		for k, _ := range whitelist {
+			log.Printf(" - %s ", k)
+		}
+	} else {
+		log.Printf("Whitelist : <all allowed>")
+	}
 
 	log.Fatal(http.ListenAndServe(listen, nil))
-
 }

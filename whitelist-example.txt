@@ -1,0 +1,5 @@
+# - Put one metric name per line
+# - Lines that begin with a # are comments and are skipped
+mymetric.count
+firefox.count1
+firefox.count2
