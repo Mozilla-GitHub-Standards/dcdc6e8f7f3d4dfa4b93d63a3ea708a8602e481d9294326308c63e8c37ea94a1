@@ -19,7 +19,7 @@ There are four endpoints for tracking metrics: gauge, count, history and set. Th
 
 ## Running it
 
-* Currently expects the datadog agent to exist on localhost:8125
+* Currently expects the datadog agent at `localhost:8125`
 * Configuration is through environment variables.
 * `LISTEN` - the address to listen on, defaults to ":8080".
 * `NAMESPACE` - what to automatically prefix all metrics with. Defaults to `experimental.`. Name must end with a period.
