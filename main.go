@@ -103,6 +103,13 @@ type statHandler func(string, []byte) error
 
 func makeHandler(handler statHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+
+		if r.Body == nil {
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, "No request data")
+			return
+		}
+
 		defer r.Body.Close()
 
 		metricName, err := extractMetric(r.URL)
